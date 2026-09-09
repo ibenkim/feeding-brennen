@@ -7,5 +7,42 @@
 }
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-cream font-sans text-espresso antialiased;
+}
+
+@layer base {
+  /* One focus treatment for the whole app, so a keyboard user never has to
+     guess where they are. Applied to :focus-visible only, so a mouse click
+     doesn't leave a ring behind. */
+  :focus-visible {
+    outline: 2px solid theme('colors.tomato');
+    outline-offset: 2px;
+  }
+
+  /* Money and counts line up in columns rather than shuffling as digits
+     change - the one typographic habit a ledger can't do without. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* A receipt's tear line. Used to separate a card's summary from its detail
+     without adding another solid border. */
+  .tear-rule {
+    border-top: 1px dashed theme('colors.rule-strong');
+  }
+}
+
+/* Nothing here animates for meaning, so honouring the preference costs the
+   design nothing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

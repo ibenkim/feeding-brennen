@@ -1,20 +1,46 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/db/pool';
 import { handleError } from '@/lib/errors';
-import { toRestaurant } from '@/lib/types';
+import { toRestaurant, toRestaurantProfile } from '@/lib/types';
+import {
+  parseIncludeProfile,
+  parseJsonBody,
+  parseRestaurantProfileInput,
+} from '@/lib/validation';
+
+// The fixed Part A projection. Nothing may be appended to this list - the
+// contract in CHALLENGE.md names exactly these five fields.
+const RESTAURANT_COLUMNS =
+  'id, name, cuisine, address, rating, created_at AS "createdAt"';
+
+// The opt-in Part B projection, selected only for `?include=profile`.
+const PROFILE_COLUMNS = `${RESTAURANT_COLUMNS}, "favoriteDish", "isFavorite", tags`;
 
 /**
  * GET /api/restaurants
  * Returns all restaurants.
+ *
+ * `?include=profile` returns the same rows with the personalization columns
+ * from 002 attached. Without it the response is byte-for-byte the Part A shape,
+ * so the enriched fields are opt-in and the fixed contract is the default.
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const { rows } = await pool.query(
-      'SELECT * FROM restaurants ORDER BY createdAt DESC'
+    const withProfile = parseIncludeProfile(
+      new URL(req.url).searchParams.get('include')
     );
+
+    const { rows } = await pool.query(
+      `SELECT ${withProfile ? PROFILE_COLUMNS : RESTAURANT_COLUMNS}
+       FROM restaurants
+       ORDER BY created_at DESC, id DESC`
+    );
+
     // Map every row - raw rows don't match the contract (NUMERIC comes back
     // as a string, timestamps as Date objects). See lib/types.ts.
-    return NextResponse.json(rows.map(toRestaurant));
+    return NextResponse.json(
+      rows.map(withProfile ? toRestaurantProfile : toRestaurant)
+    );
   } catch (err) {
     return handleError(err);
   }
@@ -24,13 +50,38 @@ export async function GET() {
  * POST /api/restaurants
  * Create a new restaurant.
  *
- * TODO (A2): implement. Read the restaurant fields from the request body,
- * insert a row, and return the created restaurant with a 201 status.
- *
- * TODO (A3): validate before you insert. Nothing validates anything today, so
- * `rating` happily accepts 6. Decide what valid means for each field and reject
- * bad bodies with a 400 rather than letting them reach the database.
+ * The optional `favoriteDish`, `isFavorite`, and `tags` fields are always
+ * accepted and always validated; omitting them stores the column defaults, so a
+ * Part A body behaves exactly as it did before. The *response* still defaults
+ * to the fixed Part A shape - pass `?include=profile` to get the metadata back.
  */
-export async function POST(_req: Request) {
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 });
+export async function POST(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const withProfile = parseIncludeProfile(url.searchParams.get('include'));
+    const input = parseRestaurantProfileInput(await parseJsonBody(req));
+
+    const { rows } = await pool.query(
+      `INSERT INTO restaurants (name, cuisine, address, rating, "favoriteDish", "isFavorite", tags)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::text[])
+       RETURNING ${withProfile ? PROFILE_COLUMNS : RESTAURANT_COLUMNS}`,
+      [
+        input.name,
+        input.cuisine,
+        input.address,
+        input.rating,
+        input.favoriteDish,
+        input.isFavorite,
+        input.tags,
+      ]
+    );
+
+    const created = withProfile
+      ? toRestaurantProfile(rows[0])
+      : toRestaurant(rows[0]);
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (err) {
+    return handleError(err);
+  }
 }

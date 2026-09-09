@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Next.js app (UI + REST API route handlers) for Feeding Brennen",
+  "engines": {
+    "node": ">=18.17 <23"
+  },
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",

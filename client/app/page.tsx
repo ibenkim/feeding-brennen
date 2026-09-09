@@ -1,32 +1,85 @@
-import { getRestaurants } from '@/lib/apiClient';
+import Link from 'next/link';
+import { RestaurantLibrary } from '@/components/RestaurantLibrary';
+import { SpendingSnapshot } from '@/components/SpendingSnapshot';
+import { getRestaurantProfiles, getSpendingInsights } from '@/lib/apiClient';
+import { formatMonth } from '@/lib/format';
+import { currentMonthKey, isMonthKey } from '@/lib/validation';
 
-// Server component. Fetches restaurants on each request and renders a plain
-// list. There is no loading state, no empty state, and no error handling: if
-// the API is down or returns something unexpected, this throws.
-export default async function HomePage() {
-  const restaurants = await getRestaurants();
+/**
+ * The overview: what a month cost, and every restaurant that could add to it.
+ *
+ * A server component that reads the month from the URL, then gets everything
+ * over HTTP like every other page here - no Server Actions and no database
+ * access from a page. Two collection-level calls cover the whole screen: the
+ * enriched restaurant list and the month's spending insights.
+ */
+
+/** A failure the page can show instead of a Next.js error screen. */
+function LoadFailure({ month }: { month: string }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-card border border-tomato/40 bg-tomato/5 p-6 text-sm text-tomato-ink"
+    >
+      <h2 className="font-display text-lg font-semibold">
+        Could not load the ledger
+      </h2>
+      <p className="mt-1">
+        The API did not answer for {formatMonth(month)}. Check that the dev server
+        and the Postgres container are both running, then reload.
+      </p>
+    </div>
+  );
+}
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: { month?: string };
+}) {
+  // The API refuses to guess a month, so the page picks the default. A junk
+  // `?month=` in the URL falls back to today's month rather than erroring.
+  const requested = searchParams.month;
+  const month = requested && isMonthKey(requested) ? requested : currentMonthKey();
+
+  const data = await Promise.all([
+    getRestaurantProfiles(),
+    getSpendingInsights(month),
+  ]).catch(() => null);
+
+  if (data === null) {
+    return <LoadFailure month={month} />;
+  }
+
+  const [restaurants, insights] = data;
 
   return (
     <div>
-      <h2 className="mb-4 text-lg font-medium">Restaurants</h2>
-      <ul className="space-y-3">
-        {restaurants.map((restaurant) => (
-          <li
-            key={restaurant.id}
-            className="rounded-lg border border-gray-200 bg-white p-4"
+      <section className="mb-10">
+        <p className="font-display text-lg italic text-clay">
+          Remember the meal. Understand the spend.
+        </p>
+        <p className="mt-2 max-w-2xl text-sm text-clay">
+          Keep the places worth returning to, log what a visit actually cost, and see
+          the month add up.{' '}
+          <Link
+            href="/visits"
+            className="font-medium text-tomato-ink underline underline-offset-2"
           >
-            <div className="flex items-baseline justify-between">
-              <span className="font-medium">{restaurant.name}</span>
-              <span className="text-sm text-gray-500">
-                {restaurant.rating}★
-              </span>
-            </div>
-            <div className="mt-1 text-sm text-gray-600">
-              {restaurant.cuisine} · {restaurant.address}
-            </div>
-          </li>
-        ))}
-      </ul>
+            Open the visit ledger
+          </Link>{' '}
+          to record one.
+        </p>
+      </section>
+
+      <SpendingSnapshot month={month} insights={insights} />
+
+      <RestaurantLibrary
+        restaurants={restaurants}
+        spending={insights.restaurants}
+        monthTotalCents={insights.current.totalAmountCents}
+        month={month}
+      />
     </div>
   );
 }
